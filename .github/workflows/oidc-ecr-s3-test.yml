@@ -1,0 +1,73 @@
+name: OIDC Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  test-oidc:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: check Who am I?
+        run: aws sts get-caller-identity
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image to ECR
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          REPO: ${{ vars.ECR_REPOSITORY }}
+          TAG_SHA: ${{ github.sha }}
+          TAG_LATEST: latest
+        run: |
+          IMAGE_URI_SHA="$REGISTRY/$REPO:$TAG_SHA"
+          IMAGE_URI_LATEST="$REGISTRY/$REPO:$TAG_LATEST"
+
+          echo "Building $IMAGE_URI_SHA and $IMAGE_URI_LATEST"
+          docker build -t "$IMAGE_URI_SHA" -t "$IMAGE_URI_LATEST" .
+
+          echo "Pushing..."
+          docker push "$IMAGE_URI_SHA"
+          docker push "$IMAGE_URI_LATEST"
+
+          echo "IMAGE_URI_SHA=$IMAGE_URI_SHA" >> $GITHUB_ENV
+          echo "IMAGE_URI_LATEST=$IMAGE_URI_LATEST" >> $GITHUB_ENV
+
+      - name: Pull image for test
+        run: |
+          docker pull "$IMAGE_URI_SHA"
+          docker run --rm "$IMAGE_URI_SHA"
+
+      - name: create a test file
+        run: |
+          echo "Hello ! i will be on s3 by $(date -u)" > s3-test.txt
+          ls -la
+
+      - name: Upload to S3
+        env:
+          BUCKET: ${{ vars.S3_BUCKET }}
+        run: |
+          aws s3 cp s3-test.txt "s3://$BUCKET/oidc-test/s3-test-${{ github.run_id }}.txt"
+
+      - name: Download from S3
+        env:
+          BUCKET: ${{ vars.S3_BUCKET }}
+        run: |
+          aws s3 cp "s3://$BUCKET/oidc-test/s3-test-${{ github.run_id }}.txt" downloaded.txt
+          echo "Downloaded contents:"
+          cat downloaded.txt
