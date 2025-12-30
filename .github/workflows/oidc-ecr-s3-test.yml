@@ -39,8 +39,8 @@ jobs:
 
       - name: Pull image for test
         run: |
-          docker pull "$IMAGE_URI_SHA"
-          docker run --rm "$IMAGE_URI_SHA"
+          docker pull "$REGISTRY/$REPO:$TAG"
+          docker run --rm "$REGISTRY/$REPO:$TAG"
 
       - name: create a test file
         run: |
